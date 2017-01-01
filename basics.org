@@ -1,0 +1,76 @@
+* Basics
+  Most of the material covered in these slides should be known to people that
+  have some basic familiarity with Haskell, however there are some things I did
+  not know, which are described here.
+
+*** Use of boolean expressions in guards
+    It is possible to use boolean expressions in guards as follows:
+    #+BEGIN_SRC haskell
+      parseMove'' :: String -> Maybe Move
+      parseMove'' str | [(m, rest)] <- reads str, ok rest = Just m
+                       | otherwise = Nothing
+        where ok = all (`elem` " \r\n")
+    #+END_SRC
+
+*** Infix functions by default
+    For functions starting with one of: 
+    #+BEGIN_SRC haskell
+    !#$%&*+./<=>?@\^|-~
+    #+END_SRC
+    or constructors starting with ~:~, infix is default, Putting functions in
+    parens makes them prefix, e.g.:
+    #+BEGIN_SRC haskell
+    (+) 1 2
+    #+END_SRC
+
+*** Fixity
+    Precedence of infix operators can be defined with *fixity declarations*:
+    - Keywords: ~infixl~/~infixr~/~infix~ for left/right/no associativity.
+    - Syntax:
+      #+BEGIN_SRC text
+      infix-keyword [0-9] function [, function ...]
+      #+END_SRC
+    - Precedence:
+      - 0 lowest
+      - 9 highers
+      - 10 is reserved for prefix function application
+    - Table of precedence:
+      #+BEGIN_SRC haskell
+        infixl 9  !!             -- This is the default when fixity unspecified
+        infixr 9  .
+        infixr 8  ^, ^^, ⋆⋆
+        infixl 7  ⋆, /, `quot`, `rem`, `div`, `mod`  
+        infixl 6  +, -           -- Unary negation "-" has this fixity, too
+        infixr 5  ++             -- built-in ":" constructor has this fixity, too
+        infix  4  ==, /=, <, <=, >=, >, `elem`, `notElem`
+        infixr 3  &&
+        infixr 2  ||
+        infixl 1  >>, >>=
+        infixr 1  =<<  
+        infixr 0  $, $!, `seq`
+      #+END_SRC
+    - Use ghci to find out the fixity of an operator:
+      #+BEGIN_SRC text
+      Prelude> :i &&
+      (&&) :: Bool -> Bool -> Bool    -- Defined in GHC.Classes
+      infixr 3 &&
+      #+END_SRC
+    - ~$~ is function application but with lowest precedence (~infixr 0~).
+
+*** How to use strictness properly
+    Function ~($!)~ might come in handy when trying to prevent thunk formation:
+    #+BEGIN_SRC haskell
+      -- | Strict (call-by-value) application operator. It takes a function and an
+      -- argument, evaluates the argument to weak head normal form (WHNF), then calls
+      -- the function with that value.
+
+      ($!)                    :: (a -> b) -> a -> b
+    #+END_SRC
+
+    Look at the following factorial example:
+    #+BEGIN_SRC haskell
+    factorialStrict' n0 = loop 1 n0
+    where loop acc n | n > 1     = (loop $! acc * n) (n - 1)
+                     | otherwise = acc
+    #+END_SRC
+    

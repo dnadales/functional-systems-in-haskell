@@ -1,0 +1,2 @@
+* Functional Systems in Haskell
+  My notes and exercises on the course [[http://www.scs.stanford.edu/16wi-cs240h/][Functional Systems in Haskell]].
