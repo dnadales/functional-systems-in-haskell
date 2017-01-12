@@ -16,7 +16,10 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Basics
+                     , DMR
+                     , Rock2
   build-depends:       base >= 4.7 && < 5
+                     , network >= 2.6.3
   default-language:    Haskell2010
 
 executable fsh-exercises-exe

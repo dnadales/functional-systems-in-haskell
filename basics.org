@@ -74,3 +74,43 @@
                      | otherwise = acc
     #+END_SRC
     
+*** Stack commands
+    #+BEGIN_SRC sh
+      stack haddock somepackage # install documentation for somepackage
+      $BROWSER $(stack path --snapshot-doc-root)/index.html # view system documentation
+      $BROWSER $(stack path --local-doc-root)/index.html # view your documentation
+      stack unpack somepackage #  download source for somepackage
+    #+END_SRC
+
+*** Loading compiled object code in ~ghci~
+    #+BEGIN_SRC sh
+    ghc --make -dynamic greet
+    #+END_SRC
+
+    #+BEGIN_SRC sh
+    ghci ./greet.hs
+    :show modules
+    #+END_SRC
+    
+*** Monomorphism restriction
+
+    - A first approximation of the restriction can be stated as "you cannot
+      overload a function onless you provide a type signature".
+    - What this means is that, in some circumstances, if your type is ambiguous
+      (i.e. polymorphic) the compiler will choose to instantiate that type to
+      something not ambiguous.
+
+      
+    The rationale for this restriction seems to be avoiding repeating 
+    computations inadvertently.
+
+
+    Monomorphism restriction seems to apply to functions defined as values:
+
+***** When does it happen?
+
+      
+***** Resources:
+      - 
+         http://lambda.jstolarek.com/2012/05/towards-understanding-haskells-monomorphism-restriction/
+      - http://stackoverflow.com/questions/32496864/what-is-the-monomorphism-restriction
