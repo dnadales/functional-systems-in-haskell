@@ -1,0 +1,6 @@
+* Can ~throw~ only in pure code, can catch them only on ~IO~
+  Why? Because the evaluation order depends on the implementation:
+  #+BEGIN_SRC haskell
+  (error "zero") + (error "two")
+  #+END_SRC
+  Can be non-deterministic!

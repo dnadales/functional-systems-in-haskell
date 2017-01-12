@@ -18,6 +18,7 @@ library
   exposed-modules:     Basics
                      , DMR
                      , Rock2
+                     , Concurrency.ExceptionsPrimer
   build-depends:       base >= 4.7 && < 5
                      , network >= 2.6.3
   default-language:    Haskell2010
