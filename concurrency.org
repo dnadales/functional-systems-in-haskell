@@ -4,3 +4,17 @@
   (error "zero") + (error "two")
   #+END_SRC
   Can be non-deterministic!
+* ~fail~ method is called in the monad when bind pattern matches
+  #+BEGIN_SRC text
+  *Main> (do 1 <- return 2; return 3) :: Maybe Int
+  Nothing
+  #+END_SRC
+
+  Where the ~Maybe~ monad is defined as:
+  #+BEGIN_SRC haskell
+    instance  Monad Maybe  where
+        (Just x) >>= k = k x
+        Nothing  >>= _  = Nothing
+        return = Just
+        fail _ = Nothing
+  #+END_SRC
