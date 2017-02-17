@@ -13,4 +13,4 @@ tuple = do
   ","
   m <- decimal
   ")"
-  return (n, m)
+  return (n, m)  
