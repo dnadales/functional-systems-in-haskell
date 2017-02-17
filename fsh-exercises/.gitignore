@@ -1,2 +1,5 @@
 .stack-work/
 TAGS
+**.hi
+**.o
+scripts/example
