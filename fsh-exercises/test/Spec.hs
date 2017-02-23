@@ -7,6 +7,16 @@ import Test.QuickCheck hiding ((.&.))
 import Data.Word (Word16)
 import Control.Monad
 
+-- | To access these functions in the REPL via stack use:
+--
+-- > stack ghci fsh-exercises:fsh-exercises-test
+--
+-- To reload use:
+--
+-- > :r
+--
+-- from the REPL.
+
 prop_encodeOne :: Char -> Bool
 prop_encodeOne c = length (encodeChar c) == 1
 
@@ -38,15 +48,48 @@ prop_encodeOne3 (Big c) = length (encodeChar c) == 1
 -- | Properties of decodeUtf16
 prop_decode (Big c) = (decodeUtf16 . encodeChar) c == [c]
 
-return []
-runTests = $quickCheckAll
-
+-- * Random points!
 data Point a = Point a a
   deriving (Eq, Show)
 
 instance (Arbitrary a) => Arbitrary (Point a) where
   arbitrary = liftM2 Point arbitrary arbitrary
   shrink (Point x y) = map (uncurry Point) $ zip (shrink x) (shrink y)
+
+-- * Random trees!
+data Tree a = Node (Tree a) (Tree a)
+            | Leaf a
+              deriving (Show)
+
+instance (Arbitrary a) => Arbitrary (Tree a) where
+  -- | If you try this:
+  --  
+  -- > arbitrary = oneof [ liftM Leaf arbitrary
+  -- >                   , liftM2 Node arbitrary arbitrary]
+  --
+  -- And then run:
+  -- > sample (arbitrary :: Gen (Tree Int))
+  --
+  -- You might get potentially infinite trees.
+  --
+  -- So sized to the rescue!
+  --
+  -- > sized  :: (Int -> Gen a) -> Gen a
+  arbitrary = sized arbTree
+
+arbTree :: (Arbitrary a) => Int -> Gen (Tree a)
+arbTree 0 = liftM Leaf arbitrary
+arbTree n = oneof [liftM Leaf arbitrary, liftM2 Node arbSubTree arbSubTree]
+  where arbSubTree = arbTree (n `div` 2)
+
+
+-- Then you can use 'resize' to resize the trees:
+--
+-- > resize ::  Int -> Gen a  -> Gen a
+-- > sample (resize 1 $ arbitrary :: Gen (Tree Int))
+
+return []
+runTests = $quickCheckAll
 
 main = runTests
 
