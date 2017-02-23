@@ -5,6 +5,7 @@ import Control.Arrow (first)
 import Data.Char
 import Test.QuickCheck hiding ((.&.))
 import Data.Word (Word16)
+import Control.Monad
 
 prop_encodeOne :: Char -> Bool
 prop_encodeOne c = length (encodeChar c) == 1
@@ -34,11 +35,18 @@ shrinkChar c = [chr (round (toRational (ord c) * i)) | i <- [0, 0.25, 0.5, 0.75,
   
 prop_encodeOne3 (Big c) = length (encodeChar c) == 1
 
+-- | Properties of decodeUtf16
 prop_decode (Big c) = (decodeUtf16 . encodeChar) c == [c]
 
 return []
 runTests = $quickCheckAll
 
+data Point a = Point a a
+  deriving (Eq, Show)
+
+instance (Arbitrary a) => Arbitrary (Point a) where
+  arbitrary = liftM2 Point arbitrary arbitrary
+  shrink (Point x y) = map (uncurry Point) $ zip (shrink x) (shrink y)
+
 main = runTests
 
--- TODO: write properties of decodeUtf16
