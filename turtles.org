@@ -1,0 +1,29 @@
+* Haskell for Shell Scripting
+*** To create a native library out of the haskell script
+    #+BEGIN_SRC sh
+    stack ghc -- -O2 example.hs
+    #+END_SRC
+*** Automatically running ghci commands on ghci startup
+    Add a ~.ghci~ file in the current directory with the following contents:
+    #+BEGIN_SRC text
+    :set -XOverloadedStrings
+    import Turtle
+    #+END_SRC
+    But this currently breaks things. I have to investigate why...
+*** Format for printing out strings!
+    #+BEGIN_SRC haskell
+    format (s%" failed with exit code: "%d) cmd n
+    #+END_SRC
+    
+    Type is inferred from the format string!
+    #+BEGIN_SRC text
+    Prelude Turtle> :type format (s%" failed with exit code: "%d)
+    format (s%" failed with exit code: "%d) :: Text -> Int -> Text
+    #+END_SRC
+
+    The best alternative to string interpolation so far!
+    #+BEGIN_SRC text
+    *Main Turtle> :t format (s% "my name is " %s% " and I'm " %d% "years old, and I'm married with " %d)
+    format (s% "my name is " %s% " and I'm " %d% "years old, and I'm married with " %d)
+    :: (Integral n1, Integral n) => Text -> Text -> n -> n1 -> Text
+    #+END_SRC
