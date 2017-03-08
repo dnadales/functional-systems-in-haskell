@@ -1,0 +1,15 @@
+* STM
+  - You get: semantics of one global lock + parallelism of fine-grained locks.
+  - You give up: ability to perform external IO actions.
+
+    
+  Haskell makes this [[http://research.microsoft.com/en-us/um/people/simonpj/papers/stm/beautiful.pdf][beautiful concurrency]] possible.
+*** New things I learned:
+***** ~alwaysSucceeds~
+      - Adds a new invariant to the transaction.
+        #+BEGIN_SRC haskell
+        alwaysSucceed inv
+        #+END_SRC
+      - Either the invariant ~inv~ throws an exception, or its value is
+        ignored.
+      - The invariant is checked at the end of every transaction.
