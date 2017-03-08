@@ -13,3 +13,45 @@
       - Either the invariant ~inv~ throws an exception, or its value is
         ignored.
       - The invariant is checked at the end of every transaction.
+* Unboxed types
+  Can't pass an unboxed type to a polymorphic function:
+  #+BEGIN_SRC haskell
+    data FastPoint = FastPoint Double# Double#
+
+    -- Won't compile
+    fp' = FastPoint 2.0## (id 2.0##)
+  #+END_SRC
+
+  Can't use unboxed types as type-parameters:
+  #+BEGIN_SRC haskell
+    -- Won't compile:
+    noInt :: Maybe Int#
+    noInt = Nothing
+  #+END_SRC
+
+  Unboxed types are a different kind of types:
+  #+BEGIN_SRC haskell
+    Prelude GHC.Types GHC.Prim> :kind Int#
+    Int# :: #
+  #+END_SRC
+
+* Forcing a value 
+
+  Forcing is turning a thunk into a non-thunk.
+
+  Consider the code below:
+  #+BEGIN_SRC haskell
+    infiniteLoop = infiniteLoop :: Char   -- loops forever
+
+    seqTest1 = infiniteLoop `seq` "Hello" -- loops forever
+
+    seqTest2 = str `seq` length str       -- returns 6
+        where str = infiniteLoop:"Hello"
+  #+END_SRC
+
+  You could expect that ~seqTest~ also looped forever. However, what ~seq~ does
+  is to force the constructor ~:~, but not its arguments (~infiniteLoop~ and
+  ~"Hello"~).
+
+*** Pattern match forces a value
+    Matching a constructor having strict fields *forces* the strict fields!

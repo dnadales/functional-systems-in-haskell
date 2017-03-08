@@ -57,3 +57,34 @@ fatherAndSon = do
   forkIO (father account)
   forkIO (son account)
   return ()
+
+-- * Newtype semantics
+newtype NTInt0 = NTInt0 Int deriving (Show)
+
+-- Note that a newtype constructor cannot have stricteness annotations.
+data NTInt1 = NTInt1 !Int deriving (Show)
+
+uNTInt0 = NTInt0 undefined
+uNTInt1 = NTInt1 undefined
+
+-- Can we write code that behaves differently for the two definitions of NTInt
+-- above?
+f0 :: NTInt0 -> Int
+f0 (NTInt0 x) = 0
+
+f1 :: NTInt1 -> Int
+f1 (NTInt1 x) = 1
+
+-- then we have
+ok = f0 uNTInt0
+
+boom = f1 uNTInt1
+
+-- Why does this happens? Well, forcing a value (by matching a constructor)
+-- forces strict fields!
+
+-- With irrefutable (lazy) pattern we can avoid this.
+f1' :: NTInt1 -> Int
+f1' ~(NTInt1 x) = 1
+
+noBoom = f1' uNTInt1
