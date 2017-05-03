@@ -9,6 +9,7 @@ module Iteratee where
 import           Control.Exception          (SomeException, bracket)
 import           Control.Exception
 import           Control.Monad
+import           Control.Monad.Trans
 import qualified Data.ByteString            as S
 import qualified Data.ByteString.Lazy       as L
 import qualified Data.ByteString.Lazy.Char8 as L8
@@ -209,3 +210,122 @@ instance Monad Iter where
           continue (NeedInput iter1) = NeedInput (iter1 >>= fiter)
           continue (NeedIO ior)      = NeedIO (liftM continue ior)
           continue (Failed e)        = Failed e
+
+-- Exercise 5: use this monad instance to retrite @countLinesIter@
+countLinesIterM :: Iter Int
+countLinesIterM = gCountLinesIterM 0
+  where gCountLinesIterM n = do
+          res <- readLine
+          case res of
+            Nothing -> return n
+            Just _  -> gCountLinesIterM $! n + 1
+
+
+countLinesIM :: FilePath -> IO Int
+countLinesIM fp = enumerateFile fp countLinesIterM >>= getResult0
+
+-- Exercise 6: implement a function to concatenate enumerators.
+cat0 :: Enumerator a -> Enumerator a -> Enumerator a
+cat0 a b iter = a iter >>= check
+  where check (NeedInput iter') = b iter'
+        check (NeedIO io)       = io >>= check
+        check r                 = return r
+
+enumerateNull :: Enumerator a
+enumerateNull = return . NeedInput
+
+countLines0 :: FilePath -> IO Int
+countLines0 dir = do
+  files <- recDirLazy dir
+  let enumerator = foldr cat0 enumerateNull $ map enumerateFile files
+  enumerator countLinesIterM >>= getResult0
+
+-- Compare @countLines@ and @countLines@
+--
+-- > ghci > countLines "/usr/include"
+-- > 645463
+-- > ghci > countLines0 "/usr/include"
+-- > 598333
+--
+--
+-- For some reason the two result above differ. And none of them seem to right...
+--
+-- > bash > find /usr/include -type f -print | xargs cat | wc -l
+-- >  597074
+--
+-- > ghci > countLines "/Users/damian.nadales/Documents/"
+-- > 11513208
+-- > ghci >countLines0 "/Users/damian.nadales/Documents/"
+-- > 11513208
+-- >
+instance MonadIO Iter where
+  liftIO io = Iter $ \c -> NeedIO $ try io >>= mkResult c
+    where mkResult _ (Left e)  = return (Failed e)
+          mkResult c (Right a) = return (Done a c)
+
+-- Exercise 6: write a function that uses @enumerateFile@ to dump the contents
+-- of a file to memory.
+dumpFile :: FilePath -> IO ()
+dumpFile path = enumerateFile path iterStdout >>= getResult0
+
+
+-- Return chunk that is non-empty of has EOF set
+iterChunk :: Iter Chunk
+iterChunk =
+  Iter $ \c@(Chunk buf eof) ->
+           if L.null buf && not eof
+           then NeedInput iterChunk
+           else Done c (Chunk L.empty eof)
+
+-- Dump input to standard output
+iterStdout :: Iter ()
+iterStdout = do
+  (Chunk buf eof) <- iterChunk
+  liftIO $ L.putStr buf
+  unless eof iterStdout
+
+-- * Inner pipeline stages
+
+-- An enumerator could be an iteratee as well. So let's define it:
+type Inum a = Iter a -> Iter (Result a)
+
+inumFile0 :: FilePath -> Inum a
+inumFile0 path iter = liftIO $ enumerateFile path iter
+
+-- | Exercise 7: fix @cat0@ to work with @Inums@.
+cat :: Inum a -> Inum a -> Inum a
+cat inum0 inum1 iter = inum0 iter >>= check
+  where check (NeedInput iter') = inum1 iter'
+        check (NeedIO io)       = liftIO io >>= check
+        check r                 = return r
+
+
+-- | Exercise 8: write an @Inum@ that acts as @xargs cat@.
+xargsCat :: Inum a
+xargsCat iter = do
+  mpath <- readLine
+  case mpath of
+    Nothing   -> return (NeedInput iter)
+    Just path -> inumFile0 (L8.unpack path) `cat` xargsCat $ iter
+
+-- Fix getResult0 to work both with @IO@ and @Iter@ monads.
+getResult :: MonadIO m => Result a -> m a
+getResult (Done res _)     = return res
+getResult (NeedInput iter) = getResult (runIter iter $ chunkEOF)
+getResult (NeedIO io)      = liftIO io >>= getResult
+getResult (Failed e)       = liftIO $ throwIO e
+
+-- Define a pipe operator that hooks pipeline statges together.
+(.|) :: Inum a -> Iter a -> Iter a
+inum .| iter = inum iter >>= getResult
+infixr 4 .|
+
+-- Define a function to run an Iter in any @MonadIO@
+run :: MonadIO m => Iter a -> m a
+run iter = getResult (NeedInput iter)
+
+-- And let's use these operators...
+countLines2 :: FilePath -> IO Int
+countLines2 path = run $ inumFile0 path .| countLinesIterM
+
+-- * Define exception handling for Iter's.
