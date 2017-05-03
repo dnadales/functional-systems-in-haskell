@@ -194,17 +194,11 @@ instance Functor Iter where
   fmap f0 (Iter iter0) = Iter $ \chunk -> fmap f0 (iter0 chunk)
 
 instance Applicative Iter where
-  pure x = Iter $ Done x
-  (Iter iter0) <*> (Iter iter1) =
-    -- TODO: does it make sense to distribute the chunks? Yes, no why?
-    Iter $ \chunk -> iter0 chunk <*> iter1 chunk
-    -- apply (iter0 chunk) iter1
-    -- where apply :: Result (a -> b) -> Iter a -> Result b
-    --       apply (Done f rest) iter     = runIter (fmap f iter) rest
-    --       apply (NeedInput iter2) iter =
-    --         NeedInput $ iter2 <*> iter
-    --       apply (NeedIO ior) <*> iter = NeedIO ior >>= \f ->
-
+  pure = return
+  fiter <*> itera = do
+    a <- itera
+    f <- fiter
+    return (f a)
 
 instance Monad Iter where
   return = Iter . Done
