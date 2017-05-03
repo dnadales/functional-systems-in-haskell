@@ -1,0 +1,33 @@
+* About ~readFile~
+  ~readFile~ opens the file immediately and it closes it when evaluated!
+  #+BEGIN_SRC haskell
+    data ByteString = Empty
+                    | Chunk {-# UNPACK #-} !S.ByteString ByteString
+
+    readFile f = openBinaryFile f ReadMode >>= hGetContents
+
+    hGetContents = hGetContentsN defaultChunkSize
+
+    hGetContentsN k h = lazyRead
+      where lazyRead = unsafeInterleaveIO loop
+            loop = do c <- S.hGetSome h k 
+                      if S.null c
+                        then hClose h >> return Empty -- The file is closed here!
+                        else do cs <- lazyRead -- By using lazy read, the IO is not yet performed
+                                return (Chunk c cs) -- A consequence is that you'll
+                                                    -- get a bytestring in pure
+                                                    -- code which might perform IO!
+  #+END_SRC
+
+  Why does the code above fixes the problem?
+  #+BEGIN_SRC haskell
+    readFiles :: [FilePath] -> IO L.ByteString
+    readFiles [] = return L.empty
+    readFiles (f:fs) = liftM2 L.append (L.readFile f)
+                       (unsafeInterleaveIO $ readFiles fs)
+  #+END_SRC
+  The trick seems to be that the use of ~unsafeInterleaveIO~ delays the
+  execution of the IO operations at the tail of the list (avoiding having
+  multiple opened files).
+                         
+
