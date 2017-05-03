@@ -8,17 +8,17 @@ data Move = Rock | Paper | Scissors
          deriving (Eq, Read, Show, Enum, Bounded)
 
 parseMove :: String -> Maybe Move
-parseMove "Rock" = Just Rock
-parseMove "Paper" = Just Paper
+parseMove "Rock"     = Just Rock
+parseMove "Paper"    = Just Paper
 parseMove "Scissors" = Just Scissors
-parseMove _ = Nothing
+parseMove _          = Nothing
 
 -- | But you can also use `reads`.
 parseMove' :: String -> Maybe Move
 parseMove' m =
   case reads m of
     [(mv, "")] -> Just mv
-    _ -> Nothing
+    _          -> Nothing
 
 -- | Note that the definitions of @parseMove@ and @parseMove'@ are not
 -- equivalent. The latter will accept trailing whitespaces. Look at this other

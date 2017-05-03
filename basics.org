@@ -107,10 +107,49 @@
 
     Monomorphism restriction seems to apply to functions defined as values:
 
-***** When does it happen?
 
+    See also [[file:fsh-exercises/src/DMR.hs][this file]]
+
+***** Function binding
+      - f x = x + 1
+
+***** Pattern binding
+      - f = (x)
+
+        
+      #+BEGIN_QUOTE
+      When a pattern binding consists of only a variable name it's called a
+      simple pattern binding.
+
+      The monomorphism restriction applies to simple pattern bindings!
+      #+END_QUOTE
+
+***** The two rules of monomorphism restriction
+      
+******* First rule
+        Application of monomorphism restriction makes types of functions that:
+        - Contain a type variable (::a -> b), and 
+        - Contain a class constraint (:: Num a -> a -> b)
+        monomorphic. This, is the types above will be instantiated to some
+        particular type.
+
+        - Not generalizing means that uses of the function might change its
+          type.
+
+********* Why rule 1?
+          
+*********** Reason 0
+            Avoid repetition of computations:
+            #+BEGIN_SRC haskell
+              genericLength :: Num a => [b] -> a
+
+              f xs = (len, len)
+                where
+                  len = genericLength xs
+            #+END_SRC
+***** What is a defaulting rule?
       
 ***** Resources:
-      - 
-         http://lambda.jstolarek.com/2012/05/towards-understanding-haskells-monomorphism-restriction/
       - http://stackoverflow.com/questions/32496864/what-is-the-monomorphism-restriction
+      - http://lambda.jstolarek.com/2012/05/towards-understanding-haskells-monomorphism-restriction/
+
