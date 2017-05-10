@@ -211,6 +211,11 @@ instance Monad Iter where
           continue (NeedIO ior)      = NeedIO (liftM continue ior)
           continue (Failed e)        = Failed e
 
+  fail msg = iterThrow (ErrorCall msg)
+
+iterThrow :: (Exception e) => e -> Iter a
+iterThrow e = Iter $ \_ -> Failed (toException e)
+
 -- Exercise 5: use this monad instance to retrite @countLinesIter@
 countLinesIterM :: Iter Int
 countLinesIterM = gCountLinesIterM 0
@@ -329,3 +334,74 @@ countLines2 :: FilePath -> IO Int
 countLines2 path = run $ inumFile0 path .| countLinesIterM
 
 -- * Define exception handling for Iter's.
+iterCatch :: Iter a -> (SomeException -> Iter a) -> Iter a
+iterCatch (Iter f0) handler = Iter (check . f0)
+  where check (NeedInput iter0) = NeedInput (iterCatch iter0 handler)
+        check (NeedIO io)       = NeedIO (liftM check io)
+        check (Failed e)        = NeedInput (handler e)
+        check done              = done
+
+onFailed :: Iter a -> Iter b -> Iter a
+onFailed iter cleanup = iterCatch iter (\e -> cleanup >> iterThrow e)
+
+iterBracket :: Iter a -> (a -> Iter b) -> (a -> Iter c) -> Iter c
+iterBracket before after action = do
+  a <- before
+  res <- action a `onFailed` after a
+  _ <- after a
+  return res
+
+inumBracket :: Iter a -> (a -> Iter b) -> (a -> Inum c) -> Inum c
+inumBracket before fafter finum iter = do
+  iterBracket before fafter (flip finum iter)
+
+-- * Simplyfying Inum construction
+type Codec a = Iter (L.ByteString, Maybe (Inum a))
+
+inumPure :: L.ByteString -> Inum a
+inumPure buf (Iter f) = return (f (Chunk buf False))
+
+runCodec :: Codec a -> Inum a
+runCodec codec iter = do
+  (input, mNext) <- codec
+  maybe (inumPure input) (inumPure input `cat`) mNext $ iter
+
+inumFile :: FilePath -> Inum a
+inumFile path =
+  inumBracket
+  (liftIO $ openFile path ReadMode)
+  (liftIO . hClose) $
+  \h ->
+    let inum = runCodec $ do
+          input <- liftIO $ S.hGetSome h 32752
+          let next = if S.null input then Nothing else Just inum
+          return (L.fromChunks [input], next)
+    in inum
+
+-- Exercise 9: write @enumDir@ using @Inum@s.
+enumDir :: FilePath -> Inum a
+enumDir path =
+  inumBracket
+  (liftIO $ openDirStream path)
+  (liftIO . closeDirStream) $
+  \ds ->
+    let inum = runCodec nextName
+        nextName = do
+          nextDir <- liftIO $ readDirStream ds
+          checkName nextDir
+
+        checkName ""   = return (L.empty, Nothing)
+        checkName "."  = nextName
+        checkName ".." = nextName
+        checkName name = liftIO (getSymbolicLinkStatus newPath)
+                         >>= checkStat newPath
+          where newPath = path </> name
+
+        checkStat path stat
+          | isRegularFile stat =
+            return (L8.pack $ path ++ "\n", Just inum)
+          | isDirectory stat =
+            return (L.empty, Just $ enumDir path `cat` inum)
+          | otherwise = nextName
+
+    in inum
