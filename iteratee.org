@@ -29,5 +29,74 @@
   The trick seems to be that the use of ~unsafeInterleaveIO~ delays the
   execution of the IO operations at the tail of the list (avoiding having
   multiple opened files).
-                         
 
+* Pipes
+  
+*** Lawful ~for~
+
+***** Associativity
+      #+BEGIN_SRC haskell
+        -- prodA :: Monad m =>      Producer a m ()  -- i.e. 'P.stdinLn'
+        -- faProdB :: Monad m => a -> Producer b m ()  -- i.e. 'triple'
+        -- gbProdC :: Monad m => b -> Producer c m ()  -- i.e. '(lift . putStrLn)'
+         for (for prodA faProdB) gbProdC = for prodA (\x -> for (faProdB x) gbProdC)
+
+        -- for prodA faProdB :: Producer b m ()
+        -- for (for prodA faProdB) gbProdC :: Producer c m ()
+        -- for (faProdB x) gbProdC :: Producer c m
+        -- \x -> for (faProdB x) gbProdC :: a -> Producer c m
+      #+END_SRC
+      What the law above seems to be saying is that you can create a producer (of
+      ~c~) by first running a producer of ~a~, passing the input to a producer of
+      ~b~ (which takes ~a~ as parameter); or giving these ~a~'s to the producer
+      that results from composing producer of ~b~ with a producer of ~c~.
+
+***** ~yield~ is the right identity
+      #+BEGIN_SRC haskell
+      for s yield = s
+      #+END_SRC
+
+      We have, that ~for~ can be used with the following types:
+      #+BEGIN_SRC haskell
+      for :: Monad m => Producer a m r -> (a -> Producer b m ()) -> Producer b m r
+      #+END_SRC
+      and ~yield~ can be used with the following types:
+      #+BEGIN_SRC haskell
+      yield :: Monad m => a -> Producer a m ()
+      #+END_SRC
+      
+      Then we have:
+      #+BEGIN_SRC haskell
+      s :: Producer a m r
+      for s :: (a -> Producer b m ()) -> Producer b m r
+      for s yield :: Producer a m r -- Note that here a ~ b
+      #+END_SRC
+      
+
+*** ~for~ vs. ~\~>~
+    We have:
+    #+BEGIN_SRC haskell
+      (~>) :: Monad m 
+           => (a -> Producer b m ())
+           -> (b -> Producer c m ())
+           -> (a -> Producer c m ())     
+
+      for :: Monad m
+          => Producer b m r
+          -> (b -> Producer c m ())
+          -> Producer c m r
+
+    #+END_SRC
+
+*** Confusing parts:
+      
+***** Are consumers producers as well?
+      If you look at this example:
+      #+BEGIN_SRC haskell
+        runEffect $ lift getLine >~ doubleUp >~ stdoutLn
+      #+END_SRC
+
+      It seems that ~yield~ is not the only way to give data back to a
+      consumer, but ~return~ also serves this purpose!
+
+***** Could you pass a consumer as the first argument of ~for~?
