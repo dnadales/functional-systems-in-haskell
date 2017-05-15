@@ -4,9 +4,11 @@
 module PWPipes where
 
 import           Control.Exception (throwIO, try)
-import           Control.Monad     (unless)
+import           Control.Monad     (forever, replicateM_, unless)
 import qualified GHC.IO.Exception  as G
 import           Pipes
+import qualified Pipes.Prelude     as Pipes
+import           Prelude           hiding (take)
 import           System.IO         (isEOF)
 
 -- * Producers
@@ -33,6 +35,17 @@ stdinLn = do
 -- The @for@ function allows use to get an effect.
 stdinReader :: Effect IO ()
 stdinReader = for stdinLn (lift . putStrLn)
+-- > for :: Monad m => Producer a m r -> (a -> Effect m ()) -> Effect m r
+--
+-- but also
+--
+-- > for :: Monad m => Producer a m r -> (a -> Producer b m ()) -> Producer b m r
+--
+-- since:
+--
+-- > data X  -- The uninhabited type
+-- > type Effect m r = Producer X m r
+--
 
 -- Let's run it:
 runStdIn :: IO ()
@@ -122,3 +135,123 @@ stdoutDoubleWriter = runEffect $ lift readLn >~ doubleC >~ concatPairC >~ stdout
 --
 
 -- * Pipes
+
+-- Let's connect @stdinLn@ and @stdoutLn@ using @>->@:
+--
+-- > stdinLn  :: Producer String IO ()
+-- > stdoutLn :: Consumer String IO ()
+-- > (>->)    :: Monad m => Producer a m r -> Consumer a m r -> Effect m r
+stdInOut :: IO ()
+stdInOut = runEffect $ stdinLn >-> stdoutLn
+
+-- This won't work.
+--stdInOut' = runEffect $ stdinLn >-> stdoutLn >-> stdoutLn
+
+take :: Int -> Pipe a a IO ()
+take n = do
+  replicateM_ n $ do
+    x <- await
+    yield x
+  lift $ putStrLn "You shall not pass!"
+
+
+maxInput :: Int -> Producer String IO ()
+-- stdinLn :: MonadIO m => Producer' String m ()
+--
+-- One possible way to instantiate the types of @>->@ is:
+--
+-- > (>->) :: Monad m => Producer a m r -> Pipe   a b m r -> Producer b m r
+--
+maxInput n = Pipes.stdinLn >-> take n
+-- How to run @maxInput@? We need a consumer so that we can produce an effect!
+-- Remember:
+--
+-- > (>->)    :: Monad m => Producer a m r -> Consumer a m r -> Effect m r
+--
+-- The type instantiation above seems to be the only one that produces an
+-- effect...
+
+maxInputStdInOut :: IO ()
+maxInputStdInOut = runEffect $ maxInput 4 >-> Pipes.stdoutLn
+
+-- Next, let's build a pipe that says yes three times...
+yes :: Monad m => Producer String m r
+yes = forever (yield "yes")
+
+yesx3 :: IO ()
+yesx3 = runEffect $ yes >-> Pipes.take 3 >-> Pipes.stdoutLn
+
+-- * ListT
+
+-- lists with side-effects in Haskell, hmmm...
+pairs :: ListT IO (Int, Char)
+pairs = do
+  -- > Select :: Producer a m () -> ListT m a
+  -- > each :: (Monad m, Foldable f) => f a -> Producer a m ()
+  x <- Select $ each [0, 1, 2]
+  lift $ putStrLn $ "x = " ++ show x
+  y <- Select $ each ['a', 'b']
+  lift $ putStrLn $ "y = " ++ show y
+  return (x, y)
+
+-- | let's print these pairs
+printPairs :: IO ()
+-- > for :: Monad m => Producer a m r -> (a -> Effect m ()) -> Effect m r
+-- > every :: (Monad m, Enumerable t) => t m a -> Producer' a m ()
+printPairs = runEffect $ for (every pairs) (lift . print)
+
+-- | Alternative definition using pipes:
+printPairs' :: IO ()
+printPairs' = runEffect $ (every pairs) >-> Pipes.print
+
+-- ** Crazy code with pipes...
+input :: Producer String IO ()
+input = Pipes.stdinLn >-> Pipes.takeWhile (/= "quit")
+
+name :: ListT IO String
+name = do
+  firstName <- Select input
+  lastName <- Select input
+  return ("Name: " ++ firstName ++ " " ++ lastName)
+
+outputNames :: IO ()
+outputNames = runEffect $ (every name) >-> Pipes.print
+-- When you run this, the first name you input will get bound and only the
+-- second will change.
+--
+-- Entering quit one time will allow to re-bind the first name.
+--
+-- Entering quit twice will quit the whole program.
+--
+-- What is happening?
+--
+-- Maybe this can be explained by the way @printPairs@ works:
+--
+-- > >>> printPairs
+-- > x = 0
+-- > y = 'a'
+-- > (0,'a')
+-- > y = 'b'
+-- > (0,'b')
+-- > x = 1
+-- > y = 'a'
+-- > (1,'a')
+-- > y = 'b'
+-- > (1,'b')
+-- > x = 2
+-- > y = 'a'
+-- > (2,'a')
+-- > y = 'b'
+-- > (2,'b')
+--
+-- Here you can see that to produce a new element, the inner index (@y@) varies
+-- faster, which seems to indicate that the first element is "reused". Only
+-- after the elements of @Select $ each ['a', 'b']@ are exhausted, the next
+-- element in @Select $ each [0, 1, 2]@ is bound
+
+-- ** Combining computations on @ListT@
+
+--TODO: continue from "You can combine ListT computations even if their inputs and outputs are completely different:"
+
+-- ** Mix ListT with Pipes
+
