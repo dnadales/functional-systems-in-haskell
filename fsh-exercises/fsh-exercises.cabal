@@ -35,6 +35,7 @@ library
                      , directory >= 1.2.6
                      , mtl
                      , pipes
+                     , pipes-safe
   default-language:    Haskell2010
 
 executable fsh-exercises-exe

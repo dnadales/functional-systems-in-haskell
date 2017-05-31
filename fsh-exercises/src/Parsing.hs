@@ -22,7 +22,7 @@ number :: DumbParser String Int
 number input = let res = reads input :: [(Int, String)] in
   case res of
     [x] -> Just x
-    _ -> Nothing
+    _   -> Nothing
 
 number' :: DumbParser String Int
 number' s = case reads h of
@@ -79,7 +79,7 @@ instance Functor (Parser s) where
 
 -- | Reimplementation of `string` and `number`:
 string1 :: String -> Parser String String
-string1 pattern  =P $ \input ->  ((,) pattern) <$> stripPrefix pattern input
+string1 pattern = P $ \input ->  ((,) pattern) <$> stripPrefix pattern input
 
 number1 :: Parser String Int
 number1 = P $ \input ->
@@ -108,4 +108,4 @@ instance Alternative (Parser s) where
   empty = P $ \_ -> Nothing
   pa <|> pb = P $ \input -> case runP pa input of
                               Nothing -> runP pb input
-                              result -> result
+                              result  -> result

@@ -3,13 +3,20 @@
 
 module PWPipes where
 
-import           Control.Exception (throwIO, try)
-import           Control.Monad     (forever, replicateM_, unless)
-import qualified GHC.IO.Exception  as G
+import           Control.Exception      (throwIO, try)
+import           Control.Monad          (forever, replicateM_, unless)
+import qualified Data.ByteString        as S
+import qualified GHC.IO.Exception       as G
 import           Pipes
-import qualified Pipes.Prelude     as Pipes
-import           Prelude           hiding (take)
-import           System.IO         (isEOF)
+import qualified Pipes.Prelude          as Pipes
+import qualified Pipes.Safe             as PS
+import           Prelude                hiding (take)
+import           System.FilePath
+import           System.FilePath.Posix  ((</>))
+import           System.IO              (isEOF)
+import           System.IO
+import           System.Posix
+import           System.Posix.Directory
 
 -- * Producers
 
@@ -249,9 +256,162 @@ outputNames = runEffect $ (every name) >-> Pipes.print
 -- after the elements of @Select $ each ['a', 'b']@ are exhausted, the next
 -- element in @Select $ each [0, 1, 2]@ is bound
 
--- ** Combining computations on @ListT@
+-- > loop :: Monad m => (a -> ListT m b) -> Pipe a b m r
 
---TODO: continue from "You can combine ListT computations even if their inputs and outputs are completely different:"
+-- ** Combining computations on @ListT@
 
 -- ** Mix ListT with Pipes
 
+-- * Tricks
+
+mapPipe :: Monad m => (a -> b) -> Pipe a b m r
+mapPipe f = for cat $ \x -> yield (f x)
+-- We have
+-- > for :: Monad m => Pipe   x b m r -> (b -> Pipe     x c m ()) -> Pipe     x c m r
+-- > cat :: Monad m => Pipe a a m r
+-- > yield :: Monad m => a -> Pipe x a m ()
+
+yes' :: Monad m => Producer String m r
+-- This is strange, I would expect that the "y" value is fed only once. However
+-- it will continue drawing "y"'s from the producer (@return "y"@).
+yes' = return "y" >~ cat
+
+yesx3' :: IO ()
+yesx3' = runEffect $ yes' >-> Pipes.take 3 >-> Pipes.stdoutLn
+
+-- TODO: continue with "Tricks"...
+
+-- Composing pipes inside another pipe:
+--
+-- Remember:
+-- > each :: (Monad m, Foldable f) => f a -> Producer a m ()
+customerService :: Producer String IO ()
+customerService = do
+    each [ "Hello, how can I help you?"        -- Begin with a script
+         , "Hold for one second."
+         ]
+    Pipes.stdinLn >-> Pipes.takeWhile (/= "Goodbye!")  -- Now continue with a human
+
+runCustomerService :: IO ()
+runCustomerService = runEffect (customerService >-> Pipes.stdoutLn)
+
+-- How to use @each@ and @~>@ to traverse nested structures.
+-- > each :: (Monad m, Foldable f) => f a -> Producer a m ()
+-- > (~>) :: Monad m               => (a -> Producer a m ()) -> (b -> Producer c m ()) -> (a -> Producer c m ())
+-- > each ~> each ~> each ~> lift . print
+-- >   :: (Foldable f2, Foldable f1, Foldable f, Show a) =>
+-- >     f (f1 (f2 a)) -> Proxy x' x c' c IO ()
+extractVals =
+  runEffect $ (((each ~> each) ~> each) ~> lift . print) xs
+  where xs = [[Just 1, Nothing], [Just 2, Just 3]]
+-- Remember that each seems to extract the values of a foldable and puts them
+-- into a producer.
+
+extractVals' =
+  runEffect $ ((each ~> each) ~> lift . print) xs
+  where xs = [[Just 1, Nothing], [Just 2, Just 3]]
+
+-- * Examples
+
+-- ** Listing all the files in a directory
+enumFiles :: FilePath -> Producer FilePath (PS.SafeT IO) ()
+enumFiles path =
+  PS.bracket (openDirStream path) (closeDirStream) loop
+  where
+    loop :: DirStream -> Producer FilePath (PS.SafeT IO) ()
+    loop ds = PS.liftBase (readDirStream ds) >>= checkName
+      where
+        checkName :: FilePath -> Producer FilePath (PS.SafeT IO) ()
+        checkName ""   = return ()
+        checkName "."  = loop ds
+        checkName ".." = loop ds
+        checkName name = PS.liftBase (getSymbolicLinkStatus newPath)
+                         >>= checkStat newPath
+          where newPath = path </> name
+
+        checkStat path stat
+          | isRegularFile stat = yield path >> loop ds
+          | isDirectory stat = enumFiles path >> loop ds
+          | otherwise = loop ds
+
+-- | Implementation of
+--
+-- > find . -type f
+--
+listFiles path = for (enumFiles path) $ PS.liftBase . putStrLn
+-- Alternatively, using pipes.
+listFiles' path = enumFiles "." >-> Pipes.stdoutLn
+
+runListFiles = PS.runSafeT $ runEffect $  listFiles "."
+runListFiles' = PS.runSafeT $ runEffect $ listFiles' "."
+
+-- To run:
+--
+-- > PS.runSafeT $ runEffect $  listFiles "."
+
+-- Now write a function that counts the number of files.
+--
+-- It seems we need to deal with the concept of termination...
+
+-- TODO: count the files in a directory.
+--
+-- See:
+--   - http://www.yesodweb.com/blog/2013/10/core-flaw-pipes-conduit
+--   - https://stackoverflow.com/questions/35139548/how-to-write-a-haskell-pipes-sum-function
+--
+-- You might need to use the @next@ function:
+--
+--   -  next :: Monad m => Producer a m r -> m (Either r (a, Producer a m r))
+
+one :: Monad m => Pipe a Int m ()
+one = await >> yield 1 >> one
+
+-- > enumFiles "" >-> one :: Proxy X () () Int (Pipes.Safe.SafeT IO) ()
+--
+-- or equivalently:
+--
+-- > Producer Int (PS.SafeT IO) ()
+--
+-- > sum' (enumFiles "" >-> one) :: Pipes.Safe.SafeT IO Int
+
+countLines :: FilePath -> PS.SafeT IO Int
+countLines path = sum' (enumFiles path >-> one)
+-- This implements: find . -type f | wc -l
+
+showLines :: FilePath -> IO ()
+showLines path = do
+  n <- PS.runSafeT $ countLines path
+  print $ "Got " ++ (show n) ++ " files"
+
+-- Re-implementation of the sum function.
+--
+-- Note that this could be generalized to a fold...
+sum' :: (Monad m, Num a) => Producer a m () -> m a
+sum' = go 0
+  where
+    go n p = next p >>= \x -> case x of
+      Left _        -> return n
+      Right (m, p') -> go (n + m) p'
+
+
+-- TODO: define a function that returns the lines of a file.
+enumFile :: FilePath -> Producer S.ByteString (PS.SafeT IO) ()
+enumFile path = PS.bracket (openFile path ReadMode) (hClose) loop
+  where
+    loop :: Handle -> Producer S.ByteString (PS.SafeT IO) ()
+    loop h = do
+          input <- PS.liftBase (S.hGetSome h 32752)
+          if S.null input
+            then return ()
+            else (yield input) >> loop h
+
+catFile :: FilePath -> IO ()
+catFile path = PS.runSafeT $ runEffect $ enumFile path >-> Pipes.print
+
+
+-- TODO: Give an alternative version of @enumFiles@ as described in the answer here:
+--
+--  - https://stackoverflow.com/questions/44267928/listing-all-the-files-under-a-directory-recursively-using-pipes`
+
+-- TODO: list the directories in a breadth first order (check whether the depth
+-- first version breaks).
