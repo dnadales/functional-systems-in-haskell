@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
 -- | Playing with pipes.
 
 module PWPipes where
 
 import           Control.Exception      (throwIO, try)
-import           Control.Monad          (forever, replicateM_, unless)
+import           Control.Monad
 import qualified Data.ByteString        as S
 import qualified GHC.IO.Exception       as G
 import           Pipes
@@ -353,7 +354,7 @@ runListFiles' = PS.runSafeT $ runEffect $ listFiles' "."
 --
 -- It seems we need to deal with the concept of termination...
 
--- TODO: count the files in a directory.
+-- Count the files in a directory.
 --
 -- See:
 --   - http://www.yesodweb.com/blog/2013/10/core-flaw-pipes-conduit
@@ -394,7 +395,6 @@ sum' = go 0
       Right (m, p') -> go (n + m) p'
 
 
--- TODO: define a function that returns the lines of a file.
 enumFile :: FilePath -> Producer S.ByteString (PS.SafeT IO) ()
 enumFile path = PS.bracket (openFile path ReadMode) (hClose) loop
   where
@@ -411,7 +411,34 @@ catFile path = PS.runSafeT $ runEffect $ enumFile path >-> Pipes.print
 
 -- TODO: Give an alternative version of @enumFiles@ as described in the answer here:
 --
---  - https://stackoverflow.com/questions/44267928/listing-all-the-files-under-a-directory-recursively-using-pipes`
+--  - https://stackoverflow.com/questions/44267928/listing-all-the-files-under-a-directory-recursively-using-pipes
+
+-- | A producer that reads the stream
+readDirStreamPr :: FilePath -> Producer' FilePath (PS.SafeT IO) ()
+readDirStreamPr path =
+  PS.bracket (openDirStream path) (\ds -> print msg >> closeDirStream ds) loop
+  where
+    msg = "Closing dir stream " ++ path
+    -- QUESTION: since we're looping forever, are we terminating and closing
+    -- the @dirStream@?
+    loop ds = forever $ liftIO (readDirStream ds) >>= yield
+
+enumFiles' :: FilePath -> Producer' FilePath (PS.SafeT IO) ()
+enumFiles' path =
+  readDirStreamPr path
+  >-> Pipes.takeWhile (/= "")
+  >-> Pipes.filter (not . flip elem [".", ".."])
+  >-> Pipes.map (path </>)
+  >-> forever checkFile'
+  where
+    checkFile' :: Proxy () FilePath () FilePath (PS.SafeT IO) ()
+    checkFile' = do
+      entry <- await
+      status <- liftIO $ getSymbolicLinkStatus entry
+      when (isRegularFile status) (yield entry)
+      when (isDirectory status) (enumFiles' entry)
+
+listFiles'' path = enumFiles' path >-> Pipes.stdoutLn
 
 -- TODO: list the directories in a breadth first order (check whether the depth
 -- first version breaks).
