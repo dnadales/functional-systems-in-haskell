@@ -7,6 +7,7 @@ module PWPipes where
 import           Control.Exception      (throwIO, try)
 import           Control.Monad
 import qualified Data.ByteString        as S
+import           Data.Foldable          (traverse_)
 import qualified GHC.IO.Exception       as G
 import           Pipes
 import qualified Pipes.Prelude          as Pipes
@@ -18,7 +19,6 @@ import           System.IO              (isEOF)
 import           System.IO
 import           System.Posix
 import           System.Posix.Directory
-
 -- * Producers
 
 -- | Producer that yields the strings read from the standard input.
@@ -421,6 +421,7 @@ readDirStreamPr path =
     msg = "Closing dir stream " ++ path
     -- QUESTION: since we're looping forever, are we terminating and closing
     -- the @dirStream@?
+    -- ANSWER: Yes we are!
     loop ds = forever $ liftIO (readDirStream ds) >>= yield
 
 enumFiles' :: FilePath -> Producer' FilePath (PS.SafeT IO) ()
@@ -431,6 +432,7 @@ enumFiles' path =
   >-> Pipes.map (path </>)
   >-> forever checkFile'
   where
+    -- Should be the same as: Pipe FilePath FilePath (PS.SafeT IO) ()
     checkFile' :: Proxy () FilePath () FilePath (PS.SafeT IO) ()
     checkFile' = do
       entry <- await
@@ -442,3 +444,42 @@ listFiles'' path = enumFiles' path >-> Pipes.stdoutLn
 
 -- TODO: list the directories in a breadth first order (check whether the depth
 -- first version breaks).
+
+-- Note that this is not breadth first search. It just outputs all the files
+-- before recursing into directories.
+--
+-- DD is for defer directory
+enumFilesDD :: FilePath -> Producer' FilePath (PS.SafeT IO) ()
+enumFilesDD path =
+  readDirStreamPr path
+  >-> Pipes.filter (not . flip elem [".", ".."])
+  >-> addPrefix path
+  >-> accum -- This part controls termination.
+
+addPrefix :: FilePath -> Pipe FilePath FilePath (PS.SafeT IO) ()
+addPrefix path = forever $ do
+  x <- await
+  if x == ""
+    then yield x
+    else yield (path </> x)
+
+accum :: Pipe FilePath FilePath (PS.SafeT IO) ()
+accum = gAccum []
+  where gAccum :: [FilePath] -> Pipe FilePath FilePath (PS.SafeT IO) ()
+        gAccum xs = do
+          entry <- await
+          if entry == ""
+            then traverse_ enumFilesDD xs
+            else do
+              status <- liftIO $ getSymbolicLinkStatus entry
+              checkStat status entry xs
+                where checkStat stat entry ys
+                        | isRegularFile stat = yield entry >> gAccum xs
+                        | isDirectory stat = gAccum (entry:ys)
+                        | otherwise = gAccum ys
+
+listFilesDD path = enumFilesDD path >-> Pipes.stdoutLn
+
+-- > PS.runSafeT $ runEffect $  listFilesDD ".stack-work/"
+
+-- TODO: now try BFS traversal of the directory structure.
