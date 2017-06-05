@@ -36,6 +36,8 @@ library
                      , mtl
                      , pipes
                      , pipes-safe
+                     , system-fileio
+                     , system-filepath
   default-language:    Haskell2010
 
 executable fsh-exercises-exe

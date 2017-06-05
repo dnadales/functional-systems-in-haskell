@@ -4,21 +4,25 @@
 
 module PWPipes where
 
-import           Control.Exception      (throwIO, try)
+import           Control.Applicative
+import           Control.Exception         (throwIO, try)
 import           Control.Monad
-import qualified Data.ByteString        as S
-import           Data.Foldable          (traverse_)
-import qualified GHC.IO.Exception       as G
+import qualified Data.ByteString           as S
+import           Data.Foldable             (traverse_)
+import qualified Filesystem                as FS
+import           Filesystem.Path.CurrentOS (decodeString)
+import qualified GHC.IO.Exception          as G
 import           Pipes
-import qualified Pipes.Prelude          as Pipes
-import qualified Pipes.Safe             as PS
-import           Prelude                hiding (take)
+import qualified Pipes.Prelude             as Pipes
+import qualified Pipes.Safe                as PS
+import           Prelude                   hiding (take)
 import           System.FilePath
-import           System.FilePath.Posix  ((</>))
-import           System.IO              (isEOF)
+import           System.FilePath.Posix     ((</>))
+import           System.IO                 (isEOF)
 import           System.IO
 import           System.Posix
 import           System.Posix.Directory
+
 -- * Producers
 
 -- | Producer that yields the strings read from the standard input.
@@ -469,7 +473,10 @@ accum = gAccum []
         gAccum xs = do
           entry <- await
           if entry == ""
-            then traverse_ enumFilesDD xs
+            then traverse_ enumFilesDD xs -- This won't close the directory
+                                          -- stream since the function @accum@
+                                          -- does not return until all the
+                                          -- recursive calls here are complete!
             else do
               status <- liftIO $ getSymbolicLinkStatus entry
               checkStat status entry xs
@@ -480,6 +487,36 @@ accum = gAccum []
 
 listFilesDD path = enumFilesDD path >-> Pipes.stdoutLn
 
--- > PS.runSafeT $ runEffect $  listFilesDD ".stack-work/"
+-- > PS.runSafeT $ runEffect $  listFilesDD "test"
 
 -- TODO: now try BFS traversal of the directory structure.
+
+-- TODO: see how it is implemented in the pipes library
+-- https://hackage.haskell.org/package/dirstream-1.0.3/docs/Data-DirStream.html
+-- Why is it implemented as a @ListT@ instead of a producer? The answer seems
+-- to be that it gives you more flexibility.
+listDirStream :: FilePath -> ListT (PS.SafeT IO) FilePath
+listDirStream path =
+  -- NOTE: we don't check if the directory can be read
+  Select $ PS.bracket (openDirStream path) (\ds -> print msg >> closeDirStream ds) loop
+  where
+    msg = "Closing dir stream " ++ path
+    loop ds = do
+      x <- liftIO (readDirStream ds)
+      case x of
+        [] -> return ()
+        _ -> do
+          when (x /= "." && x /= "..") (yield (path </> x))
+          loop ds
+
+lsListT path = PS.runSafeT $ runEffect $ for (every (listDirStream path)) (liftIO . print)
+
+listDirStreamRec :: FilePath -> ListT (PS.SafeT IO) FilePath
+listDirStreamRec path = do
+  child <- listDirStream path
+  isDir <- liftIO $ FS.isDirectory (decodeString child)
+  if isDir
+    then return child <|> listDirStreamRec child
+    else return child
+
+lsrListT path = PS.runSafeT $ runEffect $ for (every (listDirStreamRec path)) (liftIO . print)
