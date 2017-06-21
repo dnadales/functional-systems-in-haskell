@@ -520,3 +520,15 @@ listDirStreamRec path = do
     else return child
 
 lsrListT path = PS.runSafeT $ runEffect $ for (every (listDirStreamRec path)) (liftIO . print)
+
+listDirStreamRecDD :: FilePath -> ListT (PS.SafeT IO) FilePath
+listDirStreamRecDD path = gListDirStreamRecDD path []
+  where gListDirStreamRecDD path xs =  do
+          child <- listDirStream path
+          isDir <- liftIO $ FS.isDirectory (decodeString child)
+          if isDir
+            then return child <|> listDirStreamRec child
+            else return child
+
+-- The advantage of @listDirStreamRecDD@ is that the streams will be closed as
+-- the recursive calls return.
