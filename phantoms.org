@@ -1,0 +1,22 @@
+* Phantoms
+*** FlexibleInstances
+    With the ~FlexibleInstances~ extension you can define an instance with a
+    concrete type, for instance:
+    #+BEGIN_SRC haskell
+      import Data.Monoid
+
+      newtype FirstRight a b = FirstRight {
+          getFirstRight :: Either a b
+        }
+
+      instance Monoid (FirstRight String a) where
+        mempty = FirstRight (Left "suxx0rz")
+
+        a@(FirstRight (Right _)) `mappend` _ = a
+        _                        `mappend` b = b    
+    #+END_SRC
+
+    Without the ~FlexibleInstances~ extension you wouldn't be able to write
+    this instance since ~String~ is a type variable.
+*** 
+http://www.scs.stanford.edu/16wi-cs240h/slides/phantoms-slides.html#(43)
