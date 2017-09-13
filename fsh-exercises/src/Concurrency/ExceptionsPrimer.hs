@@ -5,11 +5,11 @@
 
 module Concurrency.ExceptionsPrimer where
 
--- * Declaring your own exceptions:
--- you need the @DeriveDataTypeable@ extension.
-
 import           Control.Exception
 import           Data.Typeable
+
+-- * Declaring your own exceptions:
+-- you need the @DeriveDataTypeable@ extension.
 
 data MyError = MyError String deriving (Show, Typeable)
 instance Exception MyError

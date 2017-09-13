@@ -102,7 +102,7 @@ readLine = Iter (go L.empty)
           | not (L.null b) = Done (Just acca) (Chunk btail eof)
           | not eof = NeedInput (Iter (go acca)) -- @b@ is null but we need
                                                  -- more input.
-          -- | L.null b && eof = Done Nothing (Chunk acca eof)
+          --  L.null b && eof = Done Nothing (Chunk acca eof)
           | otherwise = Done Nothing (Chunk acca eof)
           where (a, b) = L8.break (== '\n') input
                 acca = L.append acc a
@@ -125,7 +125,7 @@ enumerateFile path iter0 =
                Chunk (L.fromChunks [input]) False
       check :: Result a -> IO (Result a)
       check (NeedInput iter) = go iter
-      check (NeedIO iter)    = iter >>= check -- | Here we need to check again
+      check (NeedIO iter)    = iter >>= check --  Here we need to check again
                                               -- the result in case we need to
                                               -- do more IO or provide more
                                               -- input.

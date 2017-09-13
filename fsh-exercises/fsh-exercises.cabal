@@ -25,6 +25,7 @@ library
                      , Memory
                      , Iteratee
                      , PWPipes
+                     , GHCLanguageExtensions
   build-depends:       base >= 4.7 && < 5
                      , network >= 2.6.3
                      , turtle >= 1.2.8
