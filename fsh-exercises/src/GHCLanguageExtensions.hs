@@ -5,6 +5,7 @@ import           Control.Concurrent.MVar
 import           Control.Monad           (ap, liftM)
 import           Control.Monad.Fix
 import           Control.Monad.Trans
+import           System.IO
 
 instance (Monad m) => Monad (MStateT s m) where
   return x = MStateT $ \s -> pure (s, x)
@@ -158,4 +159,16 @@ instance Monad MIdentity where
 
 instance MonadFix MIdentity where
   mfix fm = MIdentity $ fix (runMIdentity . fm)
+
+-- ** Using fixIO
+nthFibFixIO :: Int -> IO Integer
+nthFibFixIO n  = (!! n) <$> fibs
+    where
+      fibs = fixIO $ \fs -> do
+          putStrLn "Computing your fib" -- funny, I thought we would see this
+                                        -- message multiple times when
+                                        -- computing @nthFibFixIO 10@.
+          return $ 1: 1: zipWith (+) fs (tail fs)
+
+
 
