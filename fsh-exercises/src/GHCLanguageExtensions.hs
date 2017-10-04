@@ -1,3 +1,8 @@
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE UndecidableInstances   #-}
 module GHCLanguageExtensions where
 
 import           Control.Arrow           (second)
@@ -170,5 +175,100 @@ nthFibFixIO n  = (!! n) <$> fibs
                                         -- computing @nthFibFixIO 10@.
           return $ 1: 1: zipWith (+) fs (tail fs)
 
+-- * Type-level booleans
 
+data HFalse = HFalse deriving Show
+data HTrue = HTrue deriving Show
 
+-- HNot needs the MultiParamTypeClasses extension.
+class HNot a b | a -> b where
+    hNot :: a -> b
+
+instance HNot HFalse HTrue where
+    hNot _ = HTrue
+
+instance HNot HTrue HFalse where
+    hNot _ = HFalse
+
+-- Without the functional dependency, if you try to write
+--
+-- > hNot HTrue
+--
+-- You'll get:
+--
+-- >    • Ambiguous type variable ‘a0’ arising from a use of ‘print’
+-- >       prevents the constraint ‘(Show a0)’ from being solved.
+-- >       Probable fix: use a type annotation to specify what ‘a0’ should be.
+-- >       These potential instances exist:
+-- >         instance (Show b, Show a) => Show (Either a b)
+-- >           -- Defined in ‘Data.Either’
+-- >         instance Show Ordering -- Defined in ‘GHC.Show’
+-- >         instance Show Integer -- Defined in ‘GHC.Show’
+-- >         ...plus 33 others
+-- >         ...plus 237 instances involving out-of-scope types
+-- >         (use -fprint-potential-instances to see them all)
+-- >
+--
+-- the compiler does not which type to choose for `a0` since:
+--
+-- > nNot HTrue :: forall b. HNot HTrue b => b
+--
+-- By using functional dependencies, we have that the type `HFalse` gets
+-- uniquely determined by this functional dependency.
+--
+-- > hNot HTrue :: HFalse
+--
+-- The use of functional dependencies also prevent us from writing:
+--
+-- > data HMuah = HMuah deriving Show
+--
+-- > instance HNot HFalse HMuah where
+-- >    hNot _ = HTrue
+--
+-- Since this will give rise to the following error:
+--
+-- >     Functional dependencies conflict between instance declarations:
+-- >       instance HNot HFalse HTrue
+-- >         -- Defined at /home/damian/Documents/github/capitanbatata/functional-systems-in-haskell/fsh-exercises/src/GHCLanguageExtensions.hs:185:10
+-- >       instance HNot HFalse HMuah
+-- >         -- Defined at /home/damian/Documents/github/capitanbatata/functional-systems-in-haskell/fsh-exercises/src/GHCLanguageExtensions.hs:222:10
+--
+
+-- * Computing over types
+
+class TypeEq a b c | a b -> c where
+    typeEq :: a -> b -> c
+
+instance TypeEq a a HTrue where
+    typeEq _ _ = HTrue
+
+-- We cannot just write:
+--
+-- > instance {-# OVERLAPS #-} TypeEq a b HFalse where
+-- >     typeEq _ _ = HFalse
+--
+-- Because we'll have conflicting instances:
+--
+-- >     Functional dependencies conflict between instance declarations:
+-- >       instance TypeEq a a HTrue
+-- >         -- Defined at /home/damian/Documents/github/capitanbatata/functional-systems-in-haskell/fsh-exercises/src/GHCLanguageExtensions.hs:242:10
+-- >       instance [overlap ok] TypeEq a b HFalse
+-- >         -- Defined at /home/damian/Documents/github/capitanbatata/functional-systems-in-haskell/fsh-exercises/src/GHCLanguageExtensions.hs:245:27
+--
+-- Problem: `TypeEq a a HTrue` not more specific than `TypeEq a b HFalse`
+
+class TypeCast a b | a -> b where typeCast :: a -> b
+instance TypeCast a a where typeCast = id
+
+-- This requires the 'UndecidableInstances' extension, and the
+-- 'OverlappingInstances' extension, but since it is deprecated we use the
+-- 'OVERLAPS' pragma.
+
+instance {-# OVERLAPS #-} (TypeCast HFalse c) => TypeEq a b c where
+    typeEq _ _ = typeCast HFalse
+
+-- Then you can do things like:
+--
+-- > typeEq HTrue 'a'
+-- > typeEq (10 :: Int) 'a'
+--
