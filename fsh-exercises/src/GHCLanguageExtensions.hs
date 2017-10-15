@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE UndecidableInstances   #-}
 module GHCLanguageExtensions where
 
@@ -271,4 +272,74 @@ instance {-# OVERLAPS #-} (TypeCast HFalse c) => TypeEq a b c where
 --
 -- > typeEq HTrue 'a'
 -- > typeEq (10 :: Int) 'a'
+--
+
+-- * Heterogeneous lists
+type a :+: b = Either a b
+
+data HNil = HNil deriving Show
+data h :*: t = h :*: !t deriving Show
+infixr 9 :*: -- 9 has the highest precedence
+
+foo :: (Int, String) :*: (Char, Integer) :*: (String, Double) :*: HNil
+foo = (9, "Hello") :*: ('b', 7) :*: ("see", 3.0) :*: HNil
+
+-- Notice that you need to append 'HNil' (Or anything else for that matter) to have:
+--
+-- > foo .! "fetch me a string"
+--
+-- returning "3.0", since otherwise GHC won't be able to find the correct instance.
+
+-- How would you define a lookup operator on an heterogeneous list 'h':
+--
+-- > (.!) :: h -> k -> v
+
+-- class Select k h v where -- What happens if we omit the functional dependency?
+--
+-- > :t foo .! (983 :: Int)
+-- > foo .! (983 :: Int)
+-- >  :: Select
+-- >       Int ((Int, String) :*: ((Char, Integer) :*: (String, Double))) v => V
+--
+-- > foo .! (983 :: Int) :: String
+-- > "Hello"
+-- >  foo .! (983 :: Int)
+-- > <interactive>:30:2: error:
+-- >     • Ambiguous type variable ‘a0’ arising from a use of ‘print’
+-- > ...
+--
+-- So the functional dependency seems to force the choice of 'String' as type
+-- 'v'.
+class Select k h v | k h -> v where -- What happens if we omit the functional dependency?
+    (.!) :: h -> k -> v
+
+instance Select k ((k, v) :*: t) v where
+   ((_, val) :*: _) .! _ = val
+
+instance {-# OVERLAPS #-} Select k t w => Select k (kv' :*: t) w where
+    (_ :*: t) .! k = t .! k
+
+-- > foo .! (1 :: Int)
+-- > "Hello"
+-- > foo .! (983 :: Int)
+-- > "Hello"
+
+-- Something more on the monomorphic restriction:
+--
+-- By default the monomorphic restriction seems to be turned off in the ghci, so if you enter:
+--
+-- > >>> let foo = (9, "Hello") :*: ('b', 7) :*: ("see", 3.0) :*: HNil
+-- > >>> :t foo
+-- > foo
+-- >  :: (Num t2, Num t1, Fractional t) =>
+-- >     (t2, [Char]) :*: ((Char, t1) :*: (([Char], t) :*: HNil))
+--
+-- If you set this on you'll get:
+--
+-- > >>> :set -XMonomorphismRestriction
+-- > >>> let foo = (9, "Hello") :*: ('b', 7) :*: ("see", 3.0) :*: HNil
+-- > :t foo
+-- > foo
+-- >  :: (Integer, [Char])
+-- >     :*: ((Char, Integer) :*: (([Char], Double) :*: HNil))
 --
