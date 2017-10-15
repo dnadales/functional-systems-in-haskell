@@ -11,6 +11,7 @@ import           Control.Concurrent.MVar
 import           Control.Monad           (ap, liftM)
 import           Control.Monad.Fix
 import           Control.Monad.Trans
+import           Data.IORef
 import           System.IO
 
 instance (Monad m) => Monad (MStateT s m) where
@@ -343,3 +344,48 @@ instance {-# OVERLAPS #-} Select k t w => Select k (kv' :*: t) w where
 -- >  :: (Integer, [Char])
 -- >     :*: ((Char, Integer) :*: (([Char], Double) :*: HNil))
 --
+
+-- * Object-oriented programming
+returnIO :: a -> IO a
+returnIO = return
+
+data GetVal = GetVal deriving Show
+data SetVal = SetVal deriving Show
+data ClearVal = ClearVal deriving Show
+
+-- mkVal :: Int -> IO ()
+-- Select SetVal h (Int -> a) => Int -> h -> IO ((GetVal, IO Int) :*: (SetVal, Int -> IO ()) :*: (ClearVal, a) :*: HNil)
+mkVal n self = do
+    val <- newIORef (n :: Int)
+    returnIO $ (GetVal, readIORef val)
+           :*: (SetVal, writeIORef val)
+           :*: (ClearVal, self .! SetVal $ 0)
+           :*: HNil
+
+testOO :: IO ()
+testOO = do
+    -- remember mfix :: (a -> m a) -> m a
+    -- mkVal 7 ??? (What would we put here?), mfix seems to help here!
+    x <- mfix $ mkVal 7 -- Here: :t mfix $ mkVal 7
+                        --  :: IO (   (GetVal, IO Int)
+                        --        :*: ((SetVal, Int -> IO ())
+                        --        :*: ((ClearVal, IO ()) :*: HNil))
+                        --        )
+    x .! GetVal >>= print
+    x .! ClearVal
+    x .! GetVal >>= print
+    x .! SetVal $ 10
+    x .! GetVal >>= print
+
+mkConstVal n self = do
+    super <- mkVal n self
+    returnIO $ (SetVal, const $ return ()) -- It ignores the 'SetVal' messages.
+           :*: super
+
+testInheritance = do
+    x <- mfix $ mkConstVal 7
+    x .! GetVal >>= print
+    x .! ClearVal
+    x .! GetVal >>= print
+    x .! SetVal $ 10
+    x .! GetVal >>= print
