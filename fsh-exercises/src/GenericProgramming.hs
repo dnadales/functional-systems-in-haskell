@@ -101,12 +101,27 @@ mkQ r f = maybe r f . mCast
 
 -- ** Functions on multiple types: 'extQ'
 
--- | 'extQ q f x' applies 'f' to 'x' if type 'a' can be casted to 'b',
--- otherwise returns 'q x'.
+-- | @extQ q f x@ applies @f@ to @x@ if type @a@ can be casted to @b@,
+-- otherwise returns @q x@.
 extQ :: (Typeable a, Typeable b)
-    => (a -> r) -- Default function to apply, if 'a' cannot be casted to 'b'
-    -> (b -> r) -- Function to apply if 'a' __can__ be casted to 'b'
+    => (a -> r) -- ^ Default function to apply, if @a@ cannot be casted to @b@
+    -> (b -> r) -- ^ Function to apply if @a@ __can__ be casted to @b@
     -> a -> r
 extQ q f a = case mCast a of
     Nothing -> q a
     Just b  -> f b
+
+-- What's the use of @extQ@?
+
+-- | Show only the types we know.
+myShow :: Typeable a => a -> String
+myShow = mkQ "unknown type" (show :: Int -> String)
+         `extQ` (show :: Bool -> String) -- Note how @extQ@ is used to extend
+                                         -- the show function to another type
+         `extQ` (const "A double!" :: Double -> String) -- And to another
+
+-- >  myShow (8::Int)
+-- > "8"
+--
+-- > myShow (8::Double)
+-- > "A double!"
