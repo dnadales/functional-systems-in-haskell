@@ -1,10 +1,15 @@
+{-# LANGUAGE DeriveDataTypeable     #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
-
 module GenericProgramming where
 
-class Function f a b | f a -> b where
+import           Data.Data
+import           Data.Function
+import           Data.Typeable
+import           Unsafe.Coerce
+
+class Function f a b where
     apply :: f -> a -> b
 
 instance Function (a -> b) a b where
@@ -54,3 +59,54 @@ enuList = pairToList FromEnumF (False, 7 :: Int)
 --     tupleFoldr :: f -> z -> t -> r
 
 -- instance TupleFoldr (,)
+
+-- * The derive data typeable extension
+
+-- Using 'Typeable' to make a safe 'cast' function.
+mCast :: (Typeable a, Typeable b) => a -> Maybe b
+mCast a = fix $ \ ~(Just b) -> if typeOf a == typeOf b
+                              then Just $ unsafeCoerce a
+                              else Nothing
+
+-- ** Using 'Typeable': 'mkT'
+
+-- | 'mkT' applies a version of 'f' that works on type 'a', if 'b' can be
+-- casted to 'a'. Otherwise it behaves like the identity function.
+mkT :: (Typeable a, Typeable b) => (b -> b) -> a -> a
+mkT f a =
+    case mCast f of
+        Nothing -> a
+        Just g  -> g a -- 'g' is applied to 'a`, so g :: a -> a
+                       -- then:
+                       -- mCast f :: Maybe (a -> a)
+
+newtype Salary = Salary Double deriving (Show, Data, Typeable)
+
+raiseSalary :: (Typeable a) => a -> a
+raiseSalary = mkT $ \(Salary s) -> Salary (s * 1.04)
+
+-- Try:
+--
+-- > raiseSalary ()
+-- > raiseSalary "hello"
+-- > raiseSalary 7
+-- > raiseSalary (Salary 7)
+--
+
+-- ** Using 'Typeable': 'mkQ'
+
+-- | Function that computes over one type or returns a default value.
+mkQ :: (Typeable a, Typeable b) => r -> (b -> r) -> a -> r
+mkQ r f = maybe r f . mCast
+
+-- ** Functions on multiple types: 'extQ'
+
+-- | 'extQ q f x' applies 'f' to 'x' if type 'a' can be casted to 'b',
+-- otherwise returns 'q x'.
+extQ :: (Typeable a, Typeable b)
+    => (a -> r) -- Default function to apply, if 'a' cannot be casted to 'b'
+    -> (b -> r) -- Function to apply if 'a' __can__ be casted to 'b'
+    -> a -> r
+extQ q f a = case mCast a of
+    Nothing -> q a
+    Just b  -> f b
