@@ -1,9 +1,12 @@
-{-# LANGUAGE DeriveDataTypeable     #-}
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE DeriveDataTypeable        #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances         #-}
+{-# LANGUAGE FunctionalDependencies    #-}
+{-# LANGUAGE MultiParamTypeClasses     #-}
+
 module GenericProgramming where
 
+import           Control.Exception
 import           Data.Data
 import           Data.Function
 import           Data.Typeable
@@ -95,7 +98,7 @@ raiseSalary = mkT $ \(Salary s) -> Salary (s * 1.04)
 
 -- ** Using 'Typeable': 'mkQ'
 
--- | Function that computes over one type or returns a default value.
+-- | function that computes over one type or returns a default value.
 mkQ :: (Typeable a, Typeable b) => r -> (b -> r) -> a -> r
 mkQ r f = maybe r f . mCast
 
@@ -125,3 +128,89 @@ myShow = mkQ "unknown type" (show :: Int -> String)
 --
 -- > myShow (8::Double)
 -- > "A double!"
+
+-- * The 'ExistentialQuantification' extension.
+data Step s a = Done | Skip !s | Yield !a !s
+
+data Stream a = forall s. Stream (s -> Step s a) !s
+
+-- | Context on existential variables, like hidden dictionary fields.
+data Showable = forall a . Show a => Showable a
+
+instance Show Showable where
+    show (Showable x) = "Showable " ++ show x
+
+-- A 'Showable' value has both a value of type 'a' and a dictionary for 'Show'.
+
+-- ** Example: Dynamic Type
+
+data Dynamic = forall a . Typeable a => Dynamic a
+
+toDyn :: Typeable a => a -> Dynamic
+toDyn = Dynamic
+
+fromDynamic :: Typeable a => Dynamic -> Maybe a
+fromDynamic (Dynamic b) = mCast b
+
+-- ** Making hierarchical exceptions
+data Boom = Boom deriving (Show, Typeable)
+instance Exception Boom -- use default methods
+
+f :: Int -> String
+f 42 = "you got it!"
+f _  = throw Boom
+
+-- Now let's define a hierarchy of exceptions.
+data AppError = forall e . Exception e => AppError e deriving (Typeable)
+
+instance Show AppError where show (AppError e) = "App error: " ++ show e
+instance Exception AppError
+
+data DBError = DBError deriving (Show, Typeable)
+
+instance Exception DBError where
+    -- toException :: DBError -> SomeException
+    toException = toException . AppError -- Here we declare that an 'DBError' is an 'AppError'.
+    -- fromException :: SomeException -> Maybe DBError
+    fromException se = do
+        AppError e <- fromException se -- here we try to use @fromException ::
+                                       -- SomeException -> Maybe (AppError e)@
+        cast e  -- why not just @return e@? Because e could be any type (and
+                -- you can't just do @AppError e :: AppError DBError@, because
+                -- 'AppError' takes no type parameters!). Hence the 'cast' trick!
+
+g :: IO String
+g = throw DBError
+
+safeIO :: IO String -> IO String
+safeIO g = g `catch` h
+    where h :: AppError -> IO String
+          h _ = return "AppError"
+
+safeIODB :: IO String -> IO String
+safeIODB g = g `catch` h
+    where h :: DBError -> IO String
+          h _ = return "DBError"
+
+data UserError = UserError deriving (Show, Typeable)
+
+instance Exception UserError where
+    toException = toException . AppError
+    fromException = appErrorToExeption
+
+appErrorToExeption :: (Typeable e) => SomeException -> Maybe e
+appErrorToExeption se = do
+    AppError e <- fromException se
+    cast e
+
+h :: IO String
+h = throw UserError
+
+-- > λ> safeIO g
+-- > "AppError"
+-- > λ> safeIO h
+-- > "AppError"
+-- > λ> safeIODB g
+-- > "DBError"
+-- > λ> safeIODB h
+-- > *** Exception: App error: UserError
