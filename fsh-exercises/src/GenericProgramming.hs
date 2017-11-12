@@ -1,15 +1,22 @@
+{-# LANGUAGE DefaultSignatures         #-}
 {-# LANGUAGE DeriveDataTypeable        #-}
+{-# LANGUAGE DeriveGeneric             #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts          #-}
 {-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE FunctionalDependencies    #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
+{-# LANGUAGE TypeOperators             #-}
 
 module GenericProgramming where
 
 import           Control.Exception
+import           Control.Monad.Identity
 import           Data.Data
 import           Data.Function
+import           Data.Monoid
 import           Data.Typeable
+import           GHC.Generics
 import           Unsafe.Coerce
 
 class Function f a b where
@@ -117,11 +124,11 @@ extQ q f a = case mCast a of
 -- What's the use of @extQ@?
 
 -- | Show only the types we know.
-myShow :: Typeable a => a -> String
-myShow = mkQ "unknown type" (show :: Int -> String)
-         `extQ` (show :: Bool -> String) -- Note how @extQ@ is used to extend
-                                         -- the show function to another type
-         `extQ` (const "A double!" :: Double -> String) -- And to another
+myShowT :: Typeable a => a -> String
+myShowT = mkQ "unknown type" (show :: Int -> String)
+          `extQ` (show :: Bool -> String) -- Note how @extQ@ is used to extend
+                                          -- the show function to another type
+          `extQ` (const "A double!" :: Double -> String) -- And to another.
 
 -- >  myShow (8::Int)
 -- > "8"
@@ -214,3 +221,104 @@ h = throw UserError
 -- > "DBError"
 -- > λ> safeIODB h
 -- > *** Exception: App error: UserError
+
+-- * The 'Data' class
+raiseSalaries :: (Data x) => x -> x
+raiseSalaries x = runIdentity $ gfoldl step return (raiseSalary x)
+    where step cdb d = cdb <*> pure (raiseSalaries d)
+
+-- Wow! A generic traversal!
+--
+-- > λ> raiseSalaries $ Just (1, Salary 4, True, (Salary 7, ()))
+-- > Just (1,Salary 4.16,True,(Salary 7.28,()))
+
+newtype Q r a = Q { unQ :: r }
+
+qappend :: (Monoid r) => Q r a -> Q r b -> Q r c
+qappend (Q r0) (Q r1) = Q (r0 <> r1)
+
+-- Let's sum the salaries in a structure.
+sumSalaries :: (Data x) => x -> Double
+sumSalaries x = getSum $ unQ $ gfoldl step (\_ -> toQ x) x
+    where step tot d = tot `qappend` Q (Sum $ sumSalaries d)
+          toQ = mkQ (Q $ Sum 0) $ \(Salary s) -> Q $ Sum s
+
+-- This is great!
+--
+-- > λ> sumSalaries $ Just (1, Salary 4, True, (Salary 7, ()))
+-- > 11.0
+
+-- ** Can we do the tricks above at compile time?
+
+data MyType = MyCons deriving (Show, Generic, Eq)
+
+-- Welcome to The Matrix:
+--
+-- > λ> :t from MyCons
+-- > from MyCons
+-- >  :: D1
+-- >       ('MetaData "MyType" "GenericProgramming" "main" 'False)
+-- >       (C1 ('MetaCons "MyCons" 'PrefixI 'False) U1)
+-- >       x
+--
+
+data MyTree a = Leaf a | Fork !(MyTree a) !(MyTree a) deriving (Show, Generic, Eq)
+
+-- Try:
+--
+-- > :t from (Leaf "hello")
+--
+-- or:
+--
+-- > :t from (Fork (Leaf 10) (Leaf 0))
+--
+-- > λ> datatypeName (from MyCons)
+-- > "MyType"
+
+-- data X = X
+
+
+-- ** How can we use all this generic programming features?
+class MyShow a where
+    myShow :: a -> String
+    default myShow :: (Generic a, MyShow1 (Rep a)) => a -> String
+    myShow a = myShow1 $ from a
+
+data T0 = T0 deriving (Generic, Show)
+
+instance MyShow T0
+instance MyShow a => MyShow (MyTree a)
+instance MyShow a => MyShow [a]
+
+instance MyShow Char where
+    myShow = show
+
+-- Try:
+--
+-- > λ> myShow (Leaf "hello")
+-- > "Leaf : 'h' : 'e' : 'l' : 'l' : 'o' []"
+--
+
+class MyShow1 f where myShow1 :: f p -> String
+
+instance (MyShow1 f) => MyShow1 (M1 i c f) where
+    myShow1 m1 = myShow1 (unM1 m1)
+
+instance (MyShow1 f, MyShow1 g) => MyShow1 (f :+: g) where
+    myShow1 (L1 a) = myShow1 a
+    myShow1 (R1 a) = myShow1 a
+
+-- When we hit a constructor, we want to print the name.
+instance {-# OVERLAPS #-} (Constructor c, MyShow1 f) => MyShow1 (C1 c f) where
+    myShow1 m1 = conName m1 ++ myShow1 (unM1 m1)
+
+-- When we have no-constructors arguments we don't show anything.
+instance MyShow1 U1 where myShow1 _ = ""
+
+-- When we have multiple constructor arguments, shown the all
+instance (MyShow1 f, MyShow1 g) => MyShow1 (f :*: g) where
+    myShow1 (fp :*: gp) = myShow1 fp ++ myShow1 gp
+
+instance (MyShow c) => MyShow1 (K1 i c) where
+    myShow1 k1 = ' ' : myShow (unK1 k1)
+
