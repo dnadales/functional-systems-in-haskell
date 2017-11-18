@@ -12,6 +12,7 @@ module GenericProgramming where
 
 import           Control.Exception
 import           Control.Monad.Identity
+import           Control.Monad.State.Lazy
 import           Data.Data
 import           Data.Function
 import           Data.Monoid
@@ -225,7 +226,9 @@ h = throw UserError
 -- * The 'Data' class
 raiseSalaries :: (Data x) => x -> x
 raiseSalaries x = runIdentity $ gfoldl step return (raiseSalary x)
-    where step cdb d = cdb <*> pure (raiseSalaries d)
+    where
+      step :: Data d => Identity (d -> b) -> d -> Identity b
+      step cdb d = cdb <*> pure (raiseSalaries d)
 
 -- Wow! A generic traversal!
 --
@@ -262,7 +265,7 @@ data MyType = MyCons deriving (Show, Generic, Eq)
 -- >       x
 --
 
-data MyTree a = Leaf a | Fork !(MyTree a) !(MyTree a) deriving (Show, Generic, Eq)
+data MyTree a = Leaf a | Fork !(MyTree a) !(MyTree a) deriving (Show, Generic, Eq, Data)
 
 -- Try:
 --
@@ -322,3 +325,77 @@ instance (MyShow1 f, MyShow1 g) => MyShow1 (f :*: g) where
 instance (MyShow c) => MyShow1 (K1 i c) where
     myShow1 k1 = ' ' : myShow (unK1 k1)
 
+-- * Typeable and Data in Haskell
+
+-- Examples extracted from:
+--
+-- > http://chrisdone.com/posts/data-typeable
+--
+data Foo = MkFoo deriving (Typeable, Data, Show)
+
+-- ** Typeable class
+
+-- *** Use case 3: Reifying from generic code to concrete
+
+-- reify: make (something abstract) more concrete or real.
+
+-- | Given a char, return its string representation, or unknown otherwise.
+char :: Typeable a => a -> String
+char = maybe "unknown" printC . cast
+    where printC :: Char -> String
+          printC = show
+
+-- Examples:
+--
+-- > λ> char 'a'
+-- > "'a'"
+-- > λ> char 10
+-- > "unknown"
+-- > λ> char ['1']
+-- > "unknown"
+-- > λ> char '1'
+-- > "'1'"
+
+-- ** The Data class
+
+-- > λ> dataTypeOf MkFoo
+-- > DataType {tycon = "Foo", datarep = AlgRep [MkFoo]}
+-- > λ> dataTypeOf (Leaf "hello")
+-- > DataType {tycon = "MyTree", datarep = AlgRep [Leaf,Fork]}
+-- > λ> dataTypeConstrs $ dataTypeOf (Leaf "hello")
+-- > [Leaf,Fork]
+
+-- *** Use-case 5: make a real value from its constructor
+
+-- > fromConstrB :: Data a => (forall d. Data d => d) -> Constr -> a
+--
+-- This won't work
+--
+-- > fromConstrB "bye" (toConstr (Leaf "hello"))
+--
+-- Because @"bye" :: String@ and not @forall d. Data d => d@: the callee
+-- determines what the type 'd' will be.
+
+data Wrap a = W a deriving (Data, Show)
+
+-- This will work:
+--
+-- > λ> fromConstrB (fromConstr (toConstr (1 :: Int))) (toConstr (W 0 :: Wrap Int)) :: Wrap Int
+-- > W 1
+--
+-- But this wont!
+-- > λ> fromConstrB (fromConstr (toConstr ("hello" :: String))) (toConstr (W "hello" :: Wrap String)) :: Wrap String
+-- > W "*** Exception: Data.Data.fromConstr
+
+data Bar a b = MkBar a b deriving (Data, Show)
+
+x = evalState
+     (fromConstrM
+       (do i <- get -- Here we use the monad state to keep track of how many times this function has been called.
+           modify (+1)
+           return
+             (case i of
+               0 -> fromConstr (toConstr (22::Int))
+               1 -> fromConstr (toConstr 'b')))
+       (toConstr (MkBar (4 :: Int) 'a')))
+     0 :: Bar Int Char
