@@ -51,3 +51,6 @@ over f (PZ c r) = PZ (f c) r
 -- * Problems with the approach so far
 
 -- 0. We have to specify what field we're focusing at both ends of the pipeline.
+
+
+
