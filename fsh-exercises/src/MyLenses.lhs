@@ -1,7 +1,8 @@
 Simple lenses
--------------
+=============
 
 > {-# LANGUAGE RankNTypes #-}
+> {-# LANGUAGE TupleSections #-}
 > module MyLenses where
 >
 > import Data.Functor.Identity
@@ -42,21 +43,21 @@ Solution:
 >              in r (f e)
 >
 
-Second exercise: implement `_1` and `_2` (formerly known as `focusFst` and
+Second exercise: implement `_1'` and `_2'` (formerly known as `focusFst` and
 `focusSnd`) using the functions above:
 
 ```haskell
-_1 :: Focuser (a, b) (c, b) a c
-_2 :: Focuser (a, b) (a, c) b c
+_1' :: Focuser (a, b) (c, b) a c
+_2' :: Focuser (a, b) (a, c) b c
 ```
 
 Solution:
 
-> _1 :: Focuser (a, b) (c, b) a c
-> _1 (a, b) = Focused a (\c -> (c, b))
+> _1' :: Focuser (a, b) (c, b) a c
+> _1' (a, b) = Focused a (\c -> (c, b))
 >
-> _2 :: Focuser (a, b) (a, c) b c
-> _2 (a, b) = Focused b (\c -> (a, c))
+> _2' :: Focuser (a, b) (a, c) b c
+> _2' (a, b) = Focused b (\c -> (a, c))
 >
 
 Third exercise: implement (within two minutes) `focusHead`:
@@ -70,7 +71,7 @@ focusHead :: Focuser [a] [a] a a
 >
 
 More generic lenses
--------------------
+===================
 
 > type Lens s t a b = forall f . Functor f => (a -> f b) -> s -> f t
 
@@ -87,3 +88,42 @@ view :: Lens s t a b -> s -> a
 >
 > view :: Lens s t a b -> s -> a
 > view l s = getConst $ l Const s
+
+Fifth exercise, implement `_1` and `_2` using the `Lens` type. You can use the
+`TupleSection` language extension, which allows to write `(a,)` instead of `\b
+-> (a, b)`:
+
+```haskell
+_1 :: Lens (a, b) (c, a) a c
+```
+
+> _1 :: Lens (a, b) (c, b) a c
+> _1 f (a, b) = (,b) <$>  f a
+>
+> _2 :: Lens (a, b) (a, c) b c
+> _2 f (a, b) = (a,) <$> f b
+
+Compare this with the implementation of `_1'`.
+
+```haskell
+_1' :: Focuser (a, b) (c, b) a c
+_1' (a, b) = Focused a (\c -> (c, b))
+```
+
+In the implementation above we needed to return two functions, and we didn't
+even had the `Functor` constraint.
+
+Sixth exercise, let's implement `_head` now:
+
+```haskell
+_head :: Lens [a] [a] a a
+```
+
+Solution:
+
+> _head :: Lens [a] [a] a a
+> _head f (x:xs) = (:xs) <$> f x
+> _head _ _ = error "_head called on an empty list"
+>
+
+Composing accesses:
